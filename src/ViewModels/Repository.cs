@@ -1244,6 +1244,28 @@ namespace SourceGit.ViewModels
                     if (token.IsCancellationRequested)
                         return;
 
+                    if (Preferences.Instance.ShowUncommittedInHistory && !IsBare && _localChangesCount > 0)
+                    {
+                        var now = (ulong)DateTimeOffset.Now.ToUnixTimeSeconds();
+                        var asterisk = new Models.User("*±");
+                        var uncommitted = new Models.Commit()
+                        {
+                            SHA = Models.Commit.UncommittedSHA,
+                            Subject = App.Text("Histories.UncommittedChanges"),
+                            Author = asterisk,
+                            Committer = asterisk,
+                            AuthorTime = now,
+                            CommitterTime = now,
+                            IsMerged = true,
+                        };
+
+                        var head = _currentBranch?.Head;
+                        if (!string.IsNullOrEmpty(head) && commits.Exists(c => c.SHA.Equals(head, StringComparison.Ordinal)))
+                            uncommitted.Parents.Add(head);
+
+                        commits.Insert(0, uncommitted);
+                    }
+
                     if (_histories != null)
                     {
                         _histories.IsLoading = false;
@@ -1341,9 +1363,13 @@ namespace SourceGit.ViewModels
                         return;
 
                     _workingCopy.SetData(changes);
+                    var hadLocalChanges = _localChangesCount > 0;
                     LocalChangesCount = changes.Count;
                     OnPropertyChanged(nameof(InProgressContext));
                     GetOwnerPage()?.ChangeDirtyState(Models.DirtyState.HasLocalChanges, changes.Count == 0);
+
+                    if (Preferences.Instance.ShowUncommittedInHistory && hadLocalChanges != (changes.Count > 0))
+                        RefreshCommits();
                 });
             }, token);
         }
