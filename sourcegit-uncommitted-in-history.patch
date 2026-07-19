@@ -1,0 +1,339 @@
+diff --git a/src/Models/Commit.cs b/src/Models/Commit.cs
+index de299ed..09f4b58 100644
+--- a/src/Models/Commit.cs
++++ b/src/Models/Commit.cs
+@@ -15,6 +15,8 @@ namespace SourceGit.Models
+ 
+     public class Commit : ObservableObject
+     {
++        public const string UncommittedSHA = "0000000000000000000000000000000000000000";
++
+         public string SHA { get; set; } = string.Empty;
+         public User Author { get; set; } = User.Invalid;
+         public ulong AuthorTime { get; set; } = 0;
+@@ -36,6 +38,7 @@ namespace SourceGit.Models
+ 
+         public bool IsCommitterVisible => !Author.Equals(Committer) || AuthorTime != CommitterTime;
+         public bool IsCurrentHead => Decorators.Find(x => x.Type is DecoratorType.CurrentBranchHead or DecoratorType.CurrentCommitHead) != null;
++        public bool IsUncommitted => SHA == UncommittedSHA;
+         public bool HasDecorators => Decorators.Count > 0;
+         public string FirstParentToCompare => Parents.Count > 0 ? $"{SHA}^" : EmptyTreeHash.Guess(SHA);
+ 
+diff --git a/src/Resources/Locales/de_DE.axaml b/src/Resources/Locales/de_DE.axaml
+index 6da606a..bc354a8 100644
+--- a/src/Resources/Locales/de_DE.axaml
++++ b/src/Resources/Locales/de_DE.axaml
+@@ -465,6 +465,7 @@ $1, $2, … Werte der Eingabe-Steuerelemente</x:String>
+   <x:String x:Key="Text.Histories.Tips" xml:space="preserve">Halte ‚Strg‘ oder ‚Umschalt‘, um mehrere Commits auszuwählen.</x:String>
+   <x:String x:Key="Text.Histories.Tips.MacOS" xml:space="preserve">Halte ⌘ oder ⇧, um mehrere Commits auszuwählen</x:String>
+   <x:String x:Key="Text.Histories.Tips.Prefix" xml:space="preserve">TIPPS:</x:String>
++  <x:String x:Key="Text.Histories.UncommittedChanges" xml:space="preserve">Nicht committete Änderungen</x:String>
+   <x:String x:Key="Text.Hotkeys" xml:space="preserve">Tastaturkürzel-Referenz</x:String>
+   <x:String x:Key="Text.Hotkeys.Global" xml:space="preserve">GLOBAL</x:String>
+   <x:String x:Key="Text.Hotkeys.Global.Clone" xml:space="preserve">Klone neues Repository</x:String>
+@@ -612,6 +613,7 @@ $1, $2, … Werte der Eingabe-Steuerelemente</x:String>
+   <x:String x:Key="Text.Preferences.General.ShowChangesTabInCommitDetailByDefault" xml:space="preserve">Standardmäßig Registerkarte ‚ÄNDERUNGEN‘ in Commit-Details anzeigen</x:String>
+   <x:String x:Key="Text.Preferences.General.ShowChildren" xml:space="preserve">Zeige Nachfolger in den Commit-Details</x:String>
+   <x:String x:Key="Text.Preferences.General.ShowTagsInGraph" xml:space="preserve">Zeige Tags im Commit-Verlauf</x:String>
++  <x:String x:Key="Text.Preferences.General.ShowUncommittedInHistory" xml:space="preserve">Zeige nicht committete Änderungen im Verlauf</x:String>
+   <x:String x:Key="Text.Preferences.General.SubjectGuideLength" xml:space="preserve">Längenvorgabe für Commit-Nachrichten</x:String>
+   <x:String x:Key="Text.Preferences.General.UseGitHubStyleAvatar" xml:space="preserve">Standard-Avatar im GitHub-Stil generieren</x:String>
+   <x:String x:Key="Text.Preferences.Git" xml:space="preserve">GIT</x:String>
+diff --git a/src/Resources/Locales/en_US.axaml b/src/Resources/Locales/en_US.axaml
+index c997f82..46edd0b 100644
+--- a/src/Resources/Locales/en_US.axaml
++++ b/src/Resources/Locales/en_US.axaml
+@@ -521,6 +521,7 @@
+   <x:String x:Key="Text.Histories.Tips" xml:space="preserve">Hold 'Ctrl' or 'Shift' to select multiple commits.</x:String>
+   <x:String x:Key="Text.Histories.Tips.MacOS" xml:space="preserve">Hold ⌘ or ⇧ to select multiple commits.</x:String>
+   <x:String x:Key="Text.Histories.Tips.Prefix" xml:space="preserve">TIPS:</x:String>
++  <x:String x:Key="Text.Histories.UncommittedChanges" xml:space="preserve">Uncommitted changes</x:String>
+   <x:String x:Key="Text.HistoriesDetailsStandalone" xml:space="preserve">Open in separate window</x:String>
+   <x:String x:Key="Text.HistoriesDetailsStandalone.CommitDetail" xml:space="preserve">Commit Detail</x:String>
+   <x:String x:Key="Text.HistoriesDetailsStandalone.RevisionCompare" xml:space="preserve">Revision Compare</x:String>
+@@ -690,6 +691,7 @@
+   <x:String x:Key="Text.Preferences.General.ShowChildren" xml:space="preserve">Show children in the commit details</x:String>
+   <x:String x:Key="Text.Preferences.General.ShowRelativeTimeInGraph" xml:space="preserve">Show relative time in commit graph</x:String>
+   <x:String x:Key="Text.Preferences.General.ShowTagsInGraph" xml:space="preserve">Show tags in commit graph</x:String>
++  <x:String x:Key="Text.Preferences.General.ShowUncommittedInHistory" xml:space="preserve">Show uncommitted changes in histories</x:String>
+   <x:String x:Key="Text.Preferences.General.SubjectGuideLength" xml:space="preserve">Subject Guide Length</x:String>
+   <x:String x:Key="Text.Preferences.General.Use24Hours" xml:space="preserve">24-Hours</x:String>
+   <x:String x:Key="Text.Preferences.General.UseCompactBranchNames" xml:space="preserve">Use compact branch names in commit graph</x:String>
+diff --git a/src/ViewModels/Histories.cs b/src/ViewModels/Histories.cs
+index 15cf157..23bd994 100644
+--- a/src/ViewModels/Histories.cs
++++ b/src/ViewModels/Histories.cs
+@@ -440,6 +440,11 @@ namespace SourceGit.ViewModels
+             DetailContext = new RevisionCompare(_repo, commit, null);
+         }
+ 
++        public void OpenWorkingCopyPage()
++        {
++            _repo.SelectedViewIndex = 1;
++        }
++
+         private void PostCommitsChanged()
+         {
+             if (_selectedCommits.Count == 0)
+@@ -483,22 +488,34 @@ namespace SourceGit.ViewModels
+             else if (_selectedCommits.Count == 1)
+             {
+                 var c = _selectedCommits[0];
+-                if (_repo.SearchCommitContext.Selected == null || !_repo.SearchCommitContext.Selected.SHA.Equals(c.SHA, StringComparison.Ordinal))
+-                    _repo.SearchCommitContext.Selected = _repo.SearchCommitContext.Results?.Find(x => x.SHA.Equals(c.SHA, StringComparison.Ordinal));
+-
+-                if (_detailContext is CommitDetail detail)
+-                    detail.Commit = c;
++                if (c.IsUncommitted)
++                {
++                    _repo.SearchCommitContext.Selected = null;
++                    DetailContext = _repo.WorkingCopy;
++                }
+                 else
+-                    DetailContext = new CommitDetail(_repo, _commitDetailSharedData) { Commit = c };
++                {
++                    if (_repo.SearchCommitContext.Selected == null || !_repo.SearchCommitContext.Selected.SHA.Equals(c.SHA, StringComparison.Ordinal))
++                        _repo.SearchCommitContext.Selected = _repo.SearchCommitContext.Results?.Find(x => x.SHA.Equals(c.SHA, StringComparison.Ordinal));
++
++                    if (_detailContext is CommitDetail detail)
++                        detail.Commit = c;
++                    else
++                        DetailContext = new CommitDetail(_repo, _commitDetailSharedData) { Commit = c };
++                }
+             }
+             else if (_selectedCommits.Count == 2)
+             {
+                 _repo.SearchCommitContext.Selected = null;
+ 
+-                if (_detailContext is RevisionCompare compare)
+-                    compare.SetTargets(_selectedCommits[1], _selectedCommits[0]);
++                var l = _selectedCommits[1];
++                var r = _selectedCommits[0];
++                if (l.IsUncommitted || r.IsUncommitted)
++                    DetailContext = new RevisionCompare(_repo, l.IsUncommitted ? r : l, null);
++                else if (_detailContext is RevisionCompare compare)
++                    compare.SetTargets(l, r);
+                 else
+-                    DetailContext = new RevisionCompare(_repo, _selectedCommits[1], _selectedCommits[0]);
++                    DetailContext = new RevisionCompare(_repo, l, r);
+             }
+             else
+             {
+diff --git a/src/ViewModels/Preferences.cs b/src/ViewModels/Preferences.cs
+index ce0942d..c954326 100644
+--- a/src/ViewModels/Preferences.cs
++++ b/src/ViewModels/Preferences.cs
+@@ -211,6 +211,12 @@ namespace SourceGit.ViewModels
+             set => SetProperty(ref _showTagsInGraph, value);
+         }
+ 
++        public bool ShowUncommittedInHistory
++        {
++            get => _showUncommittedInHistory;
++            set => SetProperty(ref _showUncommittedInHistory, value);
++        }
++
+         public bool UseCompactBranchNamesInGraph
+         {
+             get => _useCompactBranchNamesInGraph;
+@@ -820,6 +826,7 @@ namespace SourceGit.ViewModels
+         private string _ignoreUpdateTag = string.Empty;
+ 
+         private bool _showTagsInGraph = true;
++        private bool _showUncommittedInHistory = false;
+         private bool _useTwoColumnsLayoutInHistories = false;
+         private bool _displayTimeAsPeriodInHistories = false;
+         private bool _useSideBySideDiff = false;
+diff --git a/src/ViewModels/Repository.cs b/src/ViewModels/Repository.cs
+index 8c08dbe..404f1c2 100644
+--- a/src/ViewModels/Repository.cs
++++ b/src/ViewModels/Repository.cs
+@@ -1231,6 +1231,28 @@ namespace SourceGit.ViewModels
+                     if (token.IsCancellationRequested)
+                         return;
+ 
++                    if (Preferences.Instance.ShowUncommittedInHistory && !IsBare && _localChangesCount > 0)
++                    {
++                        var now = (ulong)DateTimeOffset.Now.ToUnixTimeSeconds();
++                        var asterisk = new Models.User("*±");
++                        var uncommitted = new Models.Commit()
++                        {
++                            SHA = Models.Commit.UncommittedSHA,
++                            Subject = App.Text("Histories.UncommittedChanges"),
++                            Author = asterisk,
++                            Committer = asterisk,
++                            AuthorTime = now,
++                            CommitterTime = now,
++                            IsMerged = true,
++                        };
++
++                        var head = _currentBranch?.Head;
++                        if (!string.IsNullOrEmpty(head) && commits.Exists(c => c.SHA.Equals(head, StringComparison.Ordinal)))
++                            uncommitted.Parents.Add(head);
++
++                        commits.Insert(0, uncommitted);
++                    }
++
+                     if (_histories != null)
+                     {
+                         _histories.IsLoading = false;
+@@ -1328,9 +1350,13 @@ namespace SourceGit.ViewModels
+                         return;
+ 
+                     _workingCopy.SetData(changes);
++                    var hadLocalChanges = _localChangesCount > 0;
+                     LocalChangesCount = changes.Count;
+                     OnPropertyChanged(nameof(InProgressContext));
+                     GetOwnerPage()?.ChangeDirtyState(Models.DirtyState.HasLocalChanges, changes.Count == 0);
++
++                    if (Preferences.Instance.ShowUncommittedInHistory && hadLocalChanges != (changes.Count > 0))
++                        RefreshCommits();
+                 });
+             }, token);
+         }
+diff --git a/src/Views/CommitTimeTextBlock.cs b/src/Views/CommitTimeTextBlock.cs
+index 66c4090..e53ecfe 100644
+--- a/src/Views/CommitTimeTextBlock.cs
++++ b/src/Views/CommitTimeTextBlock.cs
+@@ -58,6 +58,18 @@ namespace SourceGit.Views
+             set => SetAndRaise(TimestampProperty, ref _timestamp, value);
+         }
+ 
++        public static readonly DirectProperty<CommitTimeTextBlock, bool> ShowAsteriskProperty =
++            AvaloniaProperty.RegisterDirect<CommitTimeTextBlock, bool>(
++                nameof(ShowAsterisk),
++                static o => o.ShowAsterisk,
++                static (o, v) => o.ShowAsterisk = v);
++
++        public bool ShowAsterisk
++        {
++            get => _showAsterisk;
++            set => SetAndRaise(ShowAsteriskProperty, ref _showAsterisk, value);
++        }
++
+         protected override Type StyleKeyOverride => typeof(TextBlock);
+ 
+         protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+@@ -88,6 +100,10 @@ namespace SourceGit.Views
+                 if (ShowAsDateTime)
+                     SetCurrentValue(TextProperty, GetDisplayText());
+             }
++            else if (change.Property == ShowAsteriskProperty)
++            {
++                SetCurrentValue(TextProperty, GetDisplayText());
++            }
+         }
+ 
+         protected override void OnLoaded(RoutedEventArgs e)
+@@ -125,6 +141,9 @@ namespace SourceGit.Views
+ 
+         private string GetDisplayText()
+         {
++            if (ShowAsterisk)
++                return "*";
++
+             var timestamp = Timestamp;
+             if (ShowAsDateTime)
+                 return Models.DateTimeFormat.Format(timestamp);
+@@ -175,6 +194,7 @@ namespace SourceGit.Views
+         private bool _use24Hours = true;
+         private int _dateTimeFormat = 0;
+         private ulong _timestamp = 0;
++        private bool _showAsterisk = false;
+         private DispatcherTimer _refreshTimer = null;
+     }
+ }
+diff --git a/src/Views/Histories.axaml b/src/Views/Histories.axaml
+index 9555d7e..258828b 100644
+--- a/src/Views/Histories.axaml
++++ b/src/Views/Histories.axaml
+@@ -161,6 +161,7 @@
+                             HorizontalAlignment="Left"
+                             VerticalAlignment="Center"
+                             User="{Binding Author}"
++                            IsVisible="{Binding !IsUncommitted}"
+                             Opacity="{Binding IsMerged, Converter={x:Static c:BoolConverters.IsMergedToOpacity}}"
+                             IsHitTestVisible="False"/>
+ 
+@@ -204,6 +205,7 @@
+                                          FontWeight="{Binding IsCurrentHead, Converter={x:Static c:BoolConverters.IsBoldToFontWeight}}"
+                                          Opacity="{Binding IsMerged, Converter={x:Static c:BoolConverters.IsMergedToOpacity}}"
+                                          Timestamp="{Binding AuthorTime, Mode=OneWay}"
++                                         ShowAsterisk="{Binding IsUncommitted, Mode=OneWay}"
+                                          ShowAsDateTime="{Binding Source={x:Static vm:Preferences.Instance}, Path=!DisplayTimeAsPeriodInHistories, Mode=OneWay}"
+                                          DateTimeFormat="{Binding Source={x:Static vm:Preferences.Instance}, Path=DateTimeFormat, Mode=OneWay}"
+                                          Use24Hours="{Binding Source={x:Static vm:Preferences.Instance}, Path=Use24Hours, Mode=OneWay}"/>
+@@ -224,6 +226,7 @@
+                                          FontFeatures="+tnum"
+                                          Opacity="{Binding IsMerged, Converter={x:Static c:BoolConverters.IsMergedToOpacity}}"
+                                          Timestamp="{Binding CommitterTime, Mode=OneWay}"
++                                         ShowAsterisk="{Binding IsUncommitted, Mode=OneWay}"
+                                          ShowAsDateTime="{Binding Source={x:Static vm:Preferences.Instance}, Path=!DisplayTimeAsPeriodInHistories, Mode=OneWay}"
+                                          DateTimeFormat="{Binding Source={x:Static vm:Preferences.Instance}, Path=DateTimeFormat, Mode=OneWay}"
+                                          Use24Hours="{Binding Source={x:Static vm:Preferences.Instance}, Path=Use24Hours, Mode=OneWay}"/>
+@@ -347,6 +350,10 @@
+             </TabControl>
+           </DataTemplate>
+ 
++          <DataTemplate DataType="vm:WorkingCopy">
++            <v:WorkingCopy/>
++          </DataTemplate>
++
+           <DataTemplate DataType="m:Count">
+             <TabControl Padding="0,4">
+               <TabItem>
+diff --git a/src/Views/Histories.axaml.cs b/src/Views/Histories.axaml.cs
+index 777d29e..67c7771 100644
+--- a/src/Views/Histories.axaml.cs
++++ b/src/Views/Histories.axaml.cs
+@@ -634,6 +634,12 @@ namespace SourceGit.Views
+                     commits.Add(c);
+             }
+ 
++            if (commits.Exists(x => x.IsUncommitted))
++            {
++                e.Handled = true;
++                return;
++            }
++
+             if (selected.Count > 1)
+             {
+                 var menu = CreateContextMenuForMultipleCommits(repo, commits);
+@@ -656,6 +662,12 @@ namespace SourceGit.Views
+                 CommitListContainer.SelectedItems is { Count: 1 } &&
+                 e.Source is Control { DataContext: Models.Commit c })
+             {
++                if (c.IsUncommitted)
++                {
++                    histories.OpenWorkingCopyPage();
++                    return;
++                }
++
+                 if (histories.Bisect != null)
+                 {
+                     histories.CheckoutCommitDetached(c);
+diff --git a/src/Views/Preferences.axaml b/src/Views/Preferences.axaml
+index 86d660c..761cf50 100644
+--- a/src/Views/Preferences.axaml
++++ b/src/Views/Preferences.axaml
+@@ -47,7 +47,7 @@
+           <TabItem.Header>
+             <TextBlock Classes="tab_header" Text="{DynamicResource Text.Preferences.General}"/>
+           </TabItem.Header>
+-          <Grid Margin="8" RowDefinitions="32,32,32,32,32,32,32,32,32,32,32,32,32,Auto" ColumnDefinitions="Auto,*">
++          <Grid Margin="8" RowDefinitions="32,32,32,32,32,32,32,32,32,32,32,32,32,32,Auto" ColumnDefinitions="Auto,*">
+             <TextBlock Grid.Row="0" Grid.Column="0"
+                        Text="{DynamicResource Text.Preferences.General.Locale}"
+                        HorizontalAlignment="Right"
+@@ -186,6 +186,11 @@
+                       Content="{DynamicResource Text.Preferences.General.Check4UpdatesOnStartup}"
+                       IsVisible="{x:Static s:App.IsCheckForUpdateCommandVisible}"
+                       IsChecked="{Binding Check4UpdatesOnStartup, Mode=TwoWay}"/>
++
++            <CheckBox Grid.Row="14" Grid.Column="1"
++                      Height="32"
++                      Content="{DynamicResource Text.Preferences.General.ShowUncommittedInHistory}"
++                      IsChecked="{Binding ShowUncommittedInHistory, Mode=TwoWay}"/>
+           </Grid>
+         </TabItem>
+ 
