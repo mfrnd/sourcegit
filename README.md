@@ -6,6 +6,20 @@
 [![latest](https://img.shields.io/github/v/release/sourcegit-scm/sourcegit.svg)](https://github.com/sourcegit-scm/sourcegit/releases/latest)
 [![downloads](https://img.shields.io/github/downloads/sourcegit-scm/sourcegit/total)](https://github.com/sourcegit-scm/sourcegit/releases)
 
+## About this fork
+
+This is a personal fork of [sourcegit-scm/sourcegit](https://github.com/sourcegit-scm/sourcegit) that keeps one feature the upstream project declined: an optional, Sourcetree-style **"Uncommitted changes"** row at the top of the history graph. Everything else tracks upstream — the fork's feature patches are automatically rebased onto each new upstream release and published here as a new build.
+
+**Usage**
+
+* Enable it under **Preferences → General → "Show uncommitted changes in history"** (off by default).
+* When enabled and the working copy has local changes, a row appears at the top of the history graph. Click it to inspect the changes and diffs inline, or double-click to jump to the Changes page. You cannot commit from this row — it only surfaces that changes exist.
+
+**Install & updates**
+
+* Download builds from **this fork's [Releases](https://github.com/mfrnd/sourcegit/releases/latest)** (versioned `vYYYY.NN.B`, e.g. `v2026.15.1`). The Windows artifact is an unsigned portable zip.
+* The in-app updater (**Check for updates**) points at this fork, so new builds are offered automatically.
+
 ## Screenshots
 
 * Dark Theme
