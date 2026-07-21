@@ -47,7 +47,7 @@ namespace SourceGit.Views
             if (endOfTagIdx > 0)
                 ver = ver.Substring(0, endOfTagIdx);
 
-            Native.OS.OpenBrowser($"https://github.com/sourcegit-scm/sourcegit/releases/tag/{ver}");
+            Native.OS.OpenBrowser($"https://github.com/mfrnd/sourcegit/releases/tag/{ver}");
             e.Handled = true;
         }
 
