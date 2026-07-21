@@ -1,0 +1,188 @@
+name: Auto Rebase & Release
+# Replays this fork's feature patches onto the latest UPSTREAM release tag and,
+# when that produces something new, builds all platforms and publishes a DRAFT
+# release. Scheduled runs only fire from the default branch (GitHub rule), which
+# is why this file lives on `master` even though it operates on the feature branch.
+on:
+  schedule:
+    - cron: '17 6 * * *'   # daily, 06:17 UTC
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Re-release even if a fork build for the current upstream tag already exists
+        type: boolean
+        default: false
+
+concurrency:
+  group: auto-rebase-release
+  cancel-in-progress: false
+
+env:
+  FEATURE_BRANCH: feature/uncommitted-in-history
+  UPSTREAM_URL: https://github.com/sourcegit-scm/sourcegit.git
+
+jobs:
+  rebase:
+    name: Rebase onto latest upstream
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # push branch + tag
+      issues: write      # open an issue on conflict
+    outputs:
+      should_release: ${{ steps.plan.outputs.should_release }}
+      fork_tag: ${{ steps.plan.outputs.fork_tag }}
+      version: ${{ steps.plan.outputs.version }}
+      upstream_tag: ${{ steps.plan.outputs.upstream_tag }}
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.FEATURE_BRANCH }}
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream "$UPSTREAM_URL"
+          git fetch upstream --tags --prune --quiet
+
+      - name: Plan release
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          set -euo pipefail
+
+          UPSTREAM_TAG=$(gh api repos/sourcegit-scm/sourcegit/releases/latest --jq '.tag_name')
+          echo "Latest upstream release: $UPSTREAM_TAG"
+
+          if ! echo "$UPSTREAM_TAG" | grep -qE '^v[0-9]{4}\.[0-9]+$'; then
+            echo "::error::Upstream tag '$UPSTREAM_TAG' is not in vYYYY.NN form; refusing to build."
+            exit 1
+          fi
+          NUM=${UPSTREAM_TAG#v}
+          UPSTREAM_SHA=$(git rev-list -n1 "$UPSTREAM_TAG")
+
+          # Already sitting on this upstream tag (or newer)? Nothing to do, unless
+          # forced (a deliberate re-release of the patches on the same upstream).
+          if git merge-base --is-ancestor "$UPSTREAM_SHA" HEAD && [ "${FORCE:-false}" != "true" ]; then
+            echo "Feature branch is already based on $UPSTREAM_TAG (or newer)."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Have we already produced a fork build for this upstream version?
+          EXISTING=$(git ls-remote --tags origin "refs/tags/v${NUM}.*" | wc -l | tr -d ' ')
+          if [ "$EXISTING" -gt 0 ] && [ "${FORCE:-false}" != "true" ]; then
+            echo "A fork release for $UPSTREAM_TAG already exists ($EXISTING tag(s)). Re-run with force=true to rebuild."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BUILD=$((EXISTING + 1))
+          FORK_TAG="v${NUM}.${BUILD}"
+          echo "Planning fork release $FORK_TAG (upstream $UPSTREAM_TAG, build $BUILD)."
+          {
+            echo "should_release=true"
+            echo "upstream_tag=$UPSTREAM_TAG"
+            echo "fork_tag=$FORK_TAG"
+            echo "version=${NUM}.${BUILD}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Rebase, tag and push
+        if: steps.plan.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_TAG: ${{ steps.plan.outputs.upstream_tag }}
+          FORK_TAG: ${{ steps.plan.outputs.fork_tag }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          ORIG=$(git rev-parse HEAD)   # remote tip we based this rebase on
+          BASE=$(git merge-base HEAD upstream/master)
+          echo "Replaying $(git rev-list --count "$BASE"..HEAD) patch commit(s) from $BASE onto $UPSTREAM_TAG."
+
+          # Rolling backup of the current remote branch tip before we rewrite it.
+          git push -f origin "${ORIG}:refs/heads/backup/auto-rebase-last"
+
+          if ! git rebase --onto "$UPSTREAM_TAG" "$BASE" HEAD; then
+            git rebase --abort || true
+            TITLE="Auto-rebase onto ${UPSTREAM_TAG} failed"
+            EXISTING_ISSUE=$(gh issue list --state open --search "in:title \"$TITLE\"" --json title --jq '.[].title' | grep -Fx "$TITLE" || true)
+            if [ -z "$EXISTING_ISSUE" ]; then
+              gh label create automation --color ededed --description "Fork automation" >/dev/null 2>&1 || true
+              gh issue create \
+                --title "$TITLE" \
+                --label "automation" \
+                --body $'The scheduled auto-rebase of the feature patches onto upstream `'"$UPSTREAM_TAG"$'` hit conflicts and was aborted; no release was produced.\n\nResolve locally:\n```\ngit fetch upstream --tags\ngit rebase --onto '"$UPSTREAM_TAG"' '"$BASE"' '"$FEATURE_BRANCH"'\n# fix conflicts, then\ngit push --force-with-lease origin '"$FEATURE_BRANCH"'\n```\nThe daily job will pick up from the new base automatically.' \
+                || echo "::warning::Could not create tracking issue (label missing?)."
+            fi
+            echo "::error::Rebase onto $UPSTREAM_TAG failed; see the tracking issue."
+            exit 1
+          fi
+
+          # Push the clean, rebased patch set (no version bump) to the feature branch.
+          # Lease on ORIG: refuse the rewrite if someone pushed to the branch mid-run.
+          git push --force-with-lease="refs/heads/${FEATURE_BRANCH}:${ORIG}" origin "HEAD:refs/heads/${FEATURE_BRANCH}"
+
+          # Build a detached commit that carries the matching VERSION and tag it.
+          # The tag (not the branch) references this commit, keeping the branch a
+          # clean 2-commit patch set for the next rebase.
+          git checkout --detach
+          echo "$VERSION" > VERSION
+          git commit -am "chore(release): $FORK_TAG"
+          git tag -a "$FORK_TAG" -m "$FORK_TAG — uncommitted-in-history fork on upstream $UPSTREAM_TAG"
+          git push origin "refs/tags/$FORK_TAG"
+
+  build:
+    name: Build
+    needs: rebase
+    if: needs.rebase.outputs.should_release == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.rebase.outputs.fork_tag }}
+
+  package:
+    name: Package
+    needs: [rebase, build]
+    if: needs.rebase.outputs.should_release == 'true'
+    uses: ./.github/workflows/package.yml
+    with:
+      version: ${{ needs.rebase.outputs.version }}
+
+  release:
+    name: Publish release
+    needs: [rebase, package]
+    if: needs.rebase.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: package.*
+          path: packages
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.rebase.outputs.fork_tag }}
+          VERSION: ${{ needs.rebase.outputs.version }}
+          UPSTREAM_TAG: ${{ needs.rebase.outputs.upstream_tag }}
+        run: |
+          set -euo pipefail
+          # Full (non-draft, non-prerelease) release so the in-app updater's
+          # releases/latest query offers it to installs automatically.
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$VERSION" \
+            --latest \
+            --notes "Automated build of the uncommitted-in-history fork rebased onto upstream \`$UPSTREAM_TAG\`." \
+            packages/*
