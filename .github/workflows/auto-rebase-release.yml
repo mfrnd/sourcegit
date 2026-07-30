@@ -72,14 +72,20 @@ jobs:
           # the tag: after a manual conflict resolution the branch is on the new
           # tag but not yet released, and that case must still build (the rebase
           # step below is then a clean no-op).
-          EXISTING=$(git ls-remote --tags origin "refs/tags/v${NUM}.*" | wc -l | tr -d ' ')
+          # --refs drops the peeled `^{}` lines that annotated tags emit (else
+          # every existing tag is counted twice).
+          EXISTING_TAGS=$(git ls-remote --refs --tags origin "refs/tags/v${NUM}.*" | awk -F/ '{print $NF}')
+          EXISTING=$(printf '%s' "$EXISTING_TAGS" | grep -c . || true)
           if [ "$EXISTING" -gt 0 ] && [ "${FORCE:-false}" != "true" ]; then
             echo "A fork release for $UPSTREAM_TAG already exists ($EXISTING tag(s)). Re-run with force=true to rebuild."
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          BUILD=$((EXISTING + 1))
+          # Next build number = highest existing build for this upstream + 1, so a
+          # skipped/deleted number can never collide with an existing tag.
+          MAX=$(printf '%s\n' "$EXISTING_TAGS" | awk -F. '{print $NF}' | sort -n | tail -1)
+          BUILD=$(( ${MAX:-0} + 1 ))
           FORK_TAG="v${NUM}.${BUILD}"
           echo "Planning fork release $FORK_TAG (upstream $UPSTREAM_TAG, build $BUILD)."
           {
