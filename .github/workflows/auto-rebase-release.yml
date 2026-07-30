@@ -66,17 +66,12 @@ jobs:
             exit 1
           fi
           NUM=${UPSTREAM_TAG#v}
-          UPSTREAM_SHA=$(git rev-list -n1 "$UPSTREAM_TAG")
 
-          # Already sitting on this upstream tag (or newer)? Nothing to do, unless
-          # forced (a deliberate re-release of the patches on the same upstream).
-          if git merge-base --is-ancestor "$UPSTREAM_SHA" HEAD && [ "${FORCE:-false}" != "true" ]; then
-            echo "Feature branch is already based on $UPSTREAM_TAG (or newer)."
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Have we already produced a fork build for this upstream version?
+          # Gate solely on whether a fork build already exists for this upstream
+          # version. We deliberately do NOT skip when the branch already sits on
+          # the tag: after a manual conflict resolution the branch is on the new
+          # tag but not yet released, and that case must still build (the rebase
+          # step below is then a clean no-op).
           EXISTING=$(git ls-remote --tags origin "refs/tags/v${NUM}.*" | wc -l | tr -d ' ')
           if [ "$EXISTING" -gt 0 ] && [ "${FORCE:-false}" != "true" ]; then
             echo "A fork release for $UPSTREAM_TAG already exists ($EXISTING tag(s)). Re-run with force=true to rebuild."
@@ -116,12 +111,10 @@ jobs:
             TITLE="Auto-rebase onto ${UPSTREAM_TAG} failed"
             EXISTING_ISSUE=$(gh issue list --state open --search "in:title \"$TITLE\"" --json title --jq '.[].title' | grep -Fx "$TITLE" || true)
             if [ -z "$EXISTING_ISSUE" ]; then
-              gh label create automation --color ededed --description "Fork automation" >/dev/null 2>&1 || true
               gh issue create \
                 --title "$TITLE" \
-                --label "automation" \
-                --body $'The scheduled auto-rebase of the feature patches onto upstream `'"$UPSTREAM_TAG"$'` hit conflicts and was aborted; no release was produced.\n\nResolve locally:\n```\ngit fetch upstream --tags\ngit rebase --onto '"$UPSTREAM_TAG"' '"$BASE"' '"$FEATURE_BRANCH"'\n# fix conflicts, then\ngit push --force-with-lease origin '"$FEATURE_BRANCH"'\n```\nThe daily job will pick up from the new base automatically.' \
-                || echo "::warning::Could not create tracking issue (label missing?)."
+                --body $'The scheduled auto-rebase of the feature patches onto upstream `'"$UPSTREAM_TAG"$'` hit conflicts and was aborted; no release was produced.\n\nResolve locally:\n```\ngit fetch upstream --tags\ngit rebase --onto '"$UPSTREAM_TAG"' '"$BASE"' '"$FEATURE_BRANCH"'\n# fix conflicts, then\ngit push --force-with-lease origin '"$FEATURE_BRANCH"'\n```\nThe daily job will then pick up from the new base and release automatically.' \
+                || echo "::warning::Could not create tracking issue."
             fi
             echo "::error::Rebase onto $UPSTREAM_TAG failed; see the tracking issue."
             exit 1
