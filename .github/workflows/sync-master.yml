@@ -1,0 +1,72 @@
+name: Sync master with upstream
+# Weekly (Mondays) + manual. Merges upstream/master into this fork's master,
+# preserving the fork-only commits (the automation workflows, the build.yml
+# `ref` input, and the README section). This is source hygiene only — releases
+# track upstream via auto-rebase-release.yml, not via master's tree. On conflict
+# it aborts and opens a tracking issue instead of pushing a broken merge.
+# It NEVER resets master, so the automation files can't be wiped.
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # Mondays 06:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: sync-master
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_URL: https://github.com/sourcegit-scm/sourcegit.git
+
+jobs:
+  sync:
+    name: Merge upstream/master into master
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # push master
+      issues: write      # open an issue on conflict
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v6
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream "$UPSTREAM_URL"
+          git fetch upstream --prune --quiet
+
+      - name: Merge upstream/master
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          BEHIND=$(git rev-list --count HEAD..upstream/master)
+          if [ "$BEHIND" -eq 0 ]; then
+            echo "master is already up to date with upstream/master; nothing to do."
+            exit 0
+          fi
+          echo "master is $BEHIND commit(s) behind upstream/master; merging."
+
+          if ! git merge --no-edit upstream/master; then
+            git merge --abort || true
+            TITLE="Weekly master sync hit conflicts"
+            EXISTING=$(gh issue list --state open --search "in:title \"$TITLE\"" --json title --jq '.[].title' | grep -Fx "$TITLE" || true)
+            if [ -z "$EXISTING" ]; then
+              gh issue create \
+                --title "$TITLE" \
+                --body $'Merging `upstream/master` into `master` hit conflicts; master was left unchanged.\n\nThis affects only master source hygiene — releases are unaffected (they build from the feature branch rebased onto upstream tags).\n\nResolve locally:\n```\ngit checkout master\ngit fetch upstream\ngit merge upstream/master\n# fix conflicts (usually .github/workflows/build.yml or README.md), then\ngit push origin master\n```' \
+                || echo "::warning::Could not create tracking issue."
+            fi
+            echo "::error::Merging upstream/master into master failed; see the tracking issue."
+            exit 1
+          fi
+
+          git push origin HEAD:master
+          echo "master synced to upstream (now at $(git rev-parse --short HEAD))."
