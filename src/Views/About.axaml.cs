@@ -32,7 +32,9 @@ namespace SourceGit.Views
             {
                 var ver = assembly.GetName().Version;
                 if (ver != null)
-                    TxtVersion.Text = $"v{ver.Major}.{ver.Minor:D2}";
+                    TxtVersion.Text = ver.Build > 0
+                        ? $"v{ver.Major}.{ver.Minor:D2}.{ver.Build}"
+                        : $"v{ver.Major}.{ver.Minor:D2}";
             }
 
             var copyright = assembly.GetCustomAttribute<AssemblyCopyrightAttribute>();
@@ -47,7 +49,7 @@ namespace SourceGit.Views
             if (endOfTagIdx > 0)
                 ver = ver.Substring(0, endOfTagIdx);
 
-            Native.OS.OpenBrowser($"https://github.com/sourcegit-scm/sourcegit/releases/tag/{ver}");
+            Native.OS.OpenBrowser($"https://github.com/mfrnd/sourcegit/releases/tag/{ver}");
             e.Handled = true;
         }
 
@@ -63,7 +65,9 @@ namespace SourceGit.Views
             e.Handled = true;
         }
 
-        [GeneratedRegex(@"^v\d{4}\.\d{1,2}(?:\-\d+\-[0-9a-f]{8})?(?:\-dirty)?$")]
+        // Accepts upstream's vYYYY.NN as well as this fork's 3-component
+        // vYYYY.NN.B release tags (plus the git-describe/-dirty suffixes).
+        [GeneratedRegex(@"^v\d{4}\.\d{1,2}(?:\.\d+)?(?:\-\d+\-[0-9a-f]{8})?(?:\-dirty)?$")]
         private static partial Regex REG_FRIENDLY_VERSION();
     }
 }
