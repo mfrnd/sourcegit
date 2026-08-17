@@ -1239,10 +1239,41 @@ namespace SourceGit.ViewModels
                     .GetResultAsync()
                     .ConfigureAwait(false);
 
+                // Resolve the real current HEAD here rather than reading
+                // _currentBranch.Head: after a commit, RefreshBranches runs
+                // concurrently and may not have refreshed _currentBranch yet, which
+                // would leave the marker parented to the previous (stale) commit.
+                // Querying alongside the commit list keeps the parent edge in sync
+                // with the newly committed HEAD (and works in detached-HEAD state).
+                var head = (Preferences.Instance.ShowUncommittedInHistory && !IsBare)
+                    ? await new Commands.QueryRevisionByRefName(FullPath, "HEAD").GetResultAsync().ConfigureAwait(false)
+                    : null;
+
                 Dispatcher.UIThread.Invoke(() =>
                 {
                     if (token.IsCancellationRequested)
                         return;
+
+                    if (Preferences.Instance.ShowUncommittedInHistory && !IsBare && _localChangesCount > 0)
+                    {
+                        var now = (ulong)DateTimeOffset.Now.ToUnixTimeSeconds();
+                        var asterisk = new Models.User("*±");
+                        var uncommitted = new Models.Commit()
+                        {
+                            SHA = Models.Commit.UncommittedSHA,
+                            Subject = App.Text("Histories.UncommittedChanges"),
+                            Author = asterisk,
+                            Committer = asterisk,
+                            AuthorTime = now,
+                            CommitterTime = now,
+                            IsMerged = true,
+                        };
+
+                        if (!string.IsNullOrEmpty(head) && commits.Exists(c => c.SHA.Equals(head, StringComparison.Ordinal)))
+                            uncommitted.Parents.Add(head);
+
+                        commits.Insert(0, uncommitted);
+                    }
 
                     if (_histories != null)
                     {
@@ -1342,9 +1373,13 @@ namespace SourceGit.ViewModels
                         return;
 
                     _workingCopy.SetData(changes);
+                    var hadLocalChanges = _localChangesCount > 0;
                     LocalChangesCount = changes.Count;
                     OnPropertyChanged(nameof(InProgressContext));
                     GetOwnerPage()?.ChangeDirtyState(Models.DirtyState.HasLocalChanges, changes.Count == 0);
+
+                    if (Preferences.Instance.ShowUncommittedInHistory && hadLocalChanges != (changes.Count > 0))
+                        RefreshCommits();
                 });
             }, token);
         }
