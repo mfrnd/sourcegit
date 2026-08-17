@@ -42,8 +42,8 @@ jobs:
 
       - name: Configure git identity
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'mfrnd'
+          git config user.email 'mfrnd@users.noreply.github.com'
 
       - name: Fetch upstream
         run: |
@@ -117,9 +117,13 @@ jobs:
             TITLE="Auto-rebase onto ${UPSTREAM_TAG} failed"
             EXISTING_ISSUE=$(gh issue list --state open --search "in:title \"$TITLE\"" --json title --jq '.[].title' | grep -Fx "$TITLE" || true)
             if [ -z "$EXISTING_ISSUE" ]; then
-              gh issue create \
-                --title "$TITLE" \
-                --body $'The scheduled auto-rebase of the feature patches onto upstream `'"$UPSTREAM_TAG"$'` hit conflicts and was aborted; no release was produced.\n\nResolve locally:\n```\ngit fetch upstream --tags\ngit rebase --onto '"$UPSTREAM_TAG"' '"$BASE"' '"$FEATURE_BRANCH"'\n# fix conflicts, then\ngit push --force-with-lease origin '"$FEATURE_BRANCH"'\n```\nThe daily job will then pick up from the new base and release automatically.' \
+              # Use the REST endpoint, not `gh issue create` (GraphQL createIssue),
+              # which returns "Resource not accessible by integration" for the
+              # Actions token even with issues:write. REST honors issues:write.
+              BODY=$'The scheduled auto-rebase of the feature patches onto upstream `'"$UPSTREAM_TAG"$'` hit conflicts and was aborted; no release was produced.\n\nResolve locally:\n```\ngit fetch upstream --tags\ngit rebase --onto '"$UPSTREAM_TAG"' '"$BASE"' '"$FEATURE_BRANCH"'\n# fix conflicts, then\ngit push --force-with-lease origin '"$FEATURE_BRANCH"'\n```\nThe daily job will then pick up from the new base and release automatically.'
+              gh api --method POST "/repos/${GITHUB_REPOSITORY}/issues" \
+                -f "title=$TITLE" \
+                -f "body=$BODY" >/dev/null \
                 || echo "::warning::Could not create tracking issue."
             fi
             echo "::error::Rebase onto $UPSTREAM_TAG failed; see the tracking issue."
