@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -13,9 +14,70 @@ namespace SourceGit.Views
 {
     public partial class WorkingCopy : UserControl
     {
+        public static readonly StyledProperty<bool> ShowCommitPanelProperty =
+            AvaloniaProperty.Register<WorkingCopy, bool>(nameof(ShowCommitPanel), true);
+
+        public bool ShowCommitPanel
+        {
+            get => GetValue(ShowCommitPanelProperty);
+            set => SetValue(ShowCommitPanelProperty, value);
+        }
+
         public WorkingCopy()
         {
             InitializeComponent();
+            ApplyCommitPanelVisibility();
+        }
+
+        protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+        {
+            base.OnPropertyChanged(change);
+
+            if (change.Property == ShowCommitPanelProperty)
+                ApplyCommitPanelVisibility();
+        }
+
+        // When hosted in the history detail panel (marker selected) we only surface the
+        // change lists and diff — committing is not allowed from there. Collapse the
+        // commit message box and the commit options/buttons row so nothing is cut off.
+        private GridLength[] _designedRowHeights;
+        private double[] _designedRowMinHeights;
+
+        private void ApplyCommitPanelVisibility()
+        {
+            if (RightLayout == null)
+                return;
+
+            var rows = RightLayout.RowDefinitions;
+
+            // Capture the panel's designed row sizes once (from the XAML) so restoring
+            // them stays correct even when upstream tweaks these heights — avoids
+            // hard-coding values that would silently drift on a rebase.
+            if (_designedRowHeights == null)
+            {
+                _designedRowHeights = new GridLength[rows.Count];
+                _designedRowMinHeights = new double[rows.Count];
+                for (var i = 0; i < rows.Count; i++)
+                {
+                    _designedRowHeights[i] = rows[i].Height;
+                    _designedRowMinHeights[i] = rows[i].MinHeight;
+                }
+            }
+
+            var show = ShowCommitPanel;
+            CommitSplitter.IsVisible = show;
+            CommitMessageBox.IsVisible = show;
+            CommitOptionsPanel.IsVisible = show;
+
+            // Collapse the splitter/message/options rows (1..n) when hidden; restore
+            // their designed sizes when shown. Row 0 (the diff) keeps its star height,
+            // but drop its min-height while collapsed so the panel can shrink.
+            for (var i = 1; i < rows.Count; i++)
+            {
+                rows[i].Height = show ? _designedRowHeights[i] : new GridLength(0);
+                rows[i].MinHeight = show ? _designedRowMinHeights[i] : 0;
+            }
+            rows[0].MinHeight = show ? _designedRowMinHeights[0] : 0;
         }
 
         private void OnMainLayoutSizeChanged(object sender, SizeChangedEventArgs e)
