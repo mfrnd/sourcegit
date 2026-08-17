@@ -15,6 +15,8 @@ namespace SourceGit.Models
 
     public class Commit : ObservableObject
     {
+        public const string UncommittedSHA = "0000000000000000000000000000000000000000";
+
         public string SHA { get; set; } = string.Empty;
         public User Author { get; set; } = User.Invalid;
         public ulong AuthorTime { get; set; } = 0;
@@ -36,6 +38,7 @@ namespace SourceGit.Models
 
         public bool IsCommitterVisible => !Author.Equals(Committer) || AuthorTime != CommitterTime;
         public bool IsCurrentHead => Decorators.Find(x => x.Type is DecoratorType.CurrentBranchHead or DecoratorType.CurrentCommitHead) != null;
+        public bool IsUncommitted => SHA == UncommittedSHA;
         public bool HasDecorators => Decorators.Count > 0;
         public string FirstParentToCompare => Parents.Count > 0 ? $"{SHA}^" : EmptyTreeHash.Guess(SHA);
 
