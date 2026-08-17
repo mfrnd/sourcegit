@@ -189,3 +189,21 @@ jobs:
             --latest \
             --notes "Automated build of the uncommitted-in-history fork rebased onto upstream \`$UPSTREAM_TAG\`." \
             packages/*
+
+      - name: Refresh Scoop bucket
+        # Trigger the scoop-bucket Excavator so it picks up this release right
+        # away instead of waiting for its daily schedule. The built-in
+        # GITHUB_TOKEN is scoped to this repo and can't dispatch workflows in
+        # another repo, so this needs a PAT with actions:write on
+        # mfrnd/scoop-bucket, stored as the BUCKET_DISPATCH_TOKEN secret. Without
+        # the secret this step no-ops and the daily Excavator run catches up.
+        env:
+          GH_TOKEN: ${{ secrets.BUCKET_DISPATCH_TOKEN }}
+        run: |
+          if [ -n "${GH_TOKEN:-}" ]; then
+            gh workflow run Excavator --repo mfrnd/scoop-bucket \
+              && echo "Triggered scoop-bucket Excavator." \
+              || echo "::warning::Could not trigger scoop-bucket Excavator."
+          else
+            echo "BUCKET_DISPATCH_TOKEN not set; skipping bucket refresh (daily Excavator will catch up)."
+          fi
