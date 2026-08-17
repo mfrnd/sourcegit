@@ -544,11 +544,15 @@ namespace SourceGit
             {
                 try
                 {
-                    // Fetch latest release information.
+                    // Fetch latest release information from this fork's GitHub releases.
+                    // The GitHub REST API mandates a User-Agent header; requests without
+                    // one are rejected with 403. The release JSON's tag_name/name/
+                    // published_at/body map directly onto Models.Version.
                     using var client = new HttpClient();
                     client.Timeout = TimeSpan.FromSeconds(5);
+                    client.DefaultRequestHeaders.UserAgent.ParseAdd("SourceGit-Updater");
 
-                    var data = await client.GetStringAsync("https://sourcegit-scm.github.io/data/version.json");
+                    var data = await client.GetStringAsync("https://api.github.com/repos/mfrnd/sourcegit/releases/latest");
                     var ver = JsonSerializer.Deserialize(data, JsonCodeGen.Default.Version);
                     if (ver == null)
                         return;
