@@ -33,8 +33,8 @@ jobs:
 
       - name: Configure git identity
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'mfrnd'
+          git config user.email 'mfrnd@users.noreply.github.com'
 
       - name: Fetch upstream
         run: |
@@ -59,9 +59,12 @@ jobs:
             TITLE="Weekly master sync hit conflicts"
             EXISTING=$(gh issue list --state open --search "in:title \"$TITLE\"" --json title --jq '.[].title' | grep -Fx "$TITLE" || true)
             if [ -z "$EXISTING" ]; then
-              gh issue create \
-                --title "$TITLE" \
-                --body $'Merging `upstream/master` into `master` hit conflicts; master was left unchanged.\n\nThis affects only master source hygiene — releases are unaffected (they build from the feature branch rebased onto upstream tags).\n\nResolve locally:\n```\ngit checkout master\ngit fetch upstream\ngit merge upstream/master\n# fix conflicts (usually .github/workflows/build.yml or README.md), then\ngit push origin master\n```' \
+              # REST endpoint (not `gh issue create`/GraphQL, which the Actions
+              # token can't use even with issues:write).
+              BODY=$'Merging `upstream/master` into `master` hit conflicts; master was left unchanged.\n\nThis affects only master source hygiene — releases are unaffected (they build from the feature branch rebased onto upstream tags).\n\nResolve locally:\n```\ngit checkout master\ngit fetch upstream\ngit merge upstream/master\n# fix conflicts (usually .github/workflows/build.yml or README.md), then\ngit push origin master\n```'
+              gh api --method POST "/repos/${GITHUB_REPOSITORY}/issues" \
+                -f "title=$TITLE" \
+                -f "body=$BODY" >/dev/null \
                 || echo "::warning::Could not create tracking issue."
             fi
             echo "::error::Merging upstream/master into master failed; see the tracking issue."
