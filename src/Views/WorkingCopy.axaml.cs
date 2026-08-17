@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -13,9 +14,48 @@ namespace SourceGit.Views
 {
     public partial class WorkingCopy : UserControl
     {
+        public static readonly StyledProperty<bool> ShowCommitPanelProperty =
+            AvaloniaProperty.Register<WorkingCopy, bool>(nameof(ShowCommitPanel), true);
+
+        public bool ShowCommitPanel
+        {
+            get => GetValue(ShowCommitPanelProperty);
+            set => SetValue(ShowCommitPanelProperty, value);
+        }
+
         public WorkingCopy()
         {
             InitializeComponent();
+            ApplyCommitPanelVisibility();
+        }
+
+        protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+        {
+            base.OnPropertyChanged(change);
+
+            if (change.Property == ShowCommitPanelProperty)
+                ApplyCommitPanelVisibility();
+        }
+
+        // When hosted in the history detail panel (marker selected) we only surface the
+        // change lists and diff — committing is not allowed from there. Collapse the
+        // commit message box and the commit options/buttons row so nothing is cut off.
+        private void ApplyCommitPanelVisibility()
+        {
+            if (RightLayout == null)
+                return;
+
+            var show = ShowCommitPanel;
+            CommitSplitter.IsVisible = show;
+            CommitMessageBox.IsVisible = show;
+            CommitOptionsPanel.IsVisible = show;
+
+            var rows = RightLayout.RowDefinitions;
+            rows[0].MinHeight = show ? 400 : 0;
+            rows[1].Height = show ? new GridLength(4) : new GridLength(0);
+            rows[2].Height = show ? new GridLength(128) : new GridLength(0);
+            rows[2].MinHeight = show ? 100 : 0;
+            rows[3].Height = show ? new GridLength(36) : new GridLength(0);
         }
 
         private void OnMainLayoutSizeChanged(object sender, SizeChangedEventArgs e)
