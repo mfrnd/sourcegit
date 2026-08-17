@@ -58,6 +58,18 @@ namespace SourceGit.Views
             set => SetAndRaise(TimestampProperty, ref _timestamp, value);
         }
 
+        public static readonly DirectProperty<CommitTimeTextBlock, bool> ShowAsteriskProperty =
+            AvaloniaProperty.RegisterDirect<CommitTimeTextBlock, bool>(
+                nameof(ShowAsterisk),
+                static o => o.ShowAsterisk,
+                static (o, v) => o.ShowAsterisk = v);
+
+        public bool ShowAsterisk
+        {
+            get => _showAsterisk;
+            set => SetAndRaise(ShowAsteriskProperty, ref _showAsterisk, value);
+        }
+
         protected override Type StyleKeyOverride => typeof(TextBlock);
 
         protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -87,6 +99,10 @@ namespace SourceGit.Views
             {
                 if (ShowAsDateTime)
                     SetCurrentValue(TextProperty, GetDisplayText());
+            }
+            else if (change.Property == ShowAsteriskProperty)
+            {
+                SetCurrentValue(TextProperty, GetDisplayText());
             }
         }
 
@@ -125,6 +141,9 @@ namespace SourceGit.Views
 
         private string GetDisplayText()
         {
+            if (ShowAsterisk)
+                return "*";
+
             var timestamp = Timestamp;
             if (ShowAsDateTime)
                 return Models.DateTimeFormat.Format(timestamp);
@@ -175,6 +194,7 @@ namespace SourceGit.Views
         private bool _use24Hours = true;
         private int _dateTimeFormat = 0;
         private ulong _timestamp = 0;
+        private bool _showAsterisk = false;
         private DispatcherTimer _refreshTimer = null;
     }
 }
