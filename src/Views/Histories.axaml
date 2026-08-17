@@ -162,6 +162,7 @@
                             HorizontalAlignment="Left"
                             VerticalAlignment="Center"
                             User="{Binding Author}"
+                            IsVisible="{Binding !IsUncommitted}"
                             Opacity="{Binding IsMerged, Converter={x:Static c:BoolConverters.IsMergedToOpacity}}"
                             IsHitTestVisible="False"/>
 
@@ -205,6 +206,7 @@
                                          FontWeight="{Binding IsCurrentHead, Converter={x:Static c:BoolConverters.IsBoldToFontWeight}}"
                                          Opacity="{Binding IsMerged, Converter={x:Static c:BoolConverters.IsMergedToOpacity}}"
                                          Timestamp="{Binding AuthorTime, Mode=OneWay}"
+                                         ShowAsterisk="{Binding IsUncommitted, Mode=OneWay}"
                                          ShowAsDateTime="{Binding Source={x:Static vm:Preferences.Instance}, Path=!DisplayTimeAsPeriodInHistories, Mode=OneWay}"
                                          DateTimeFormat="{Binding Source={x:Static vm:Preferences.Instance}, Path=DateTimeFormat, Mode=OneWay}"
                                          Use24Hours="{Binding Source={x:Static vm:Preferences.Instance}, Path=Use24Hours, Mode=OneWay}"/>
@@ -225,6 +227,7 @@
                                          FontFeatures="+tnum"
                                          Opacity="{Binding IsMerged, Converter={x:Static c:BoolConverters.IsMergedToOpacity}}"
                                          Timestamp="{Binding CommitterTime, Mode=OneWay}"
+                                         ShowAsterisk="{Binding IsUncommitted, Mode=OneWay}"
                                          ShowAsDateTime="{Binding Source={x:Static vm:Preferences.Instance}, Path=!DisplayTimeAsPeriodInHistories, Mode=OneWay}"
                                          DateTimeFormat="{Binding Source={x:Static vm:Preferences.Instance}, Path=DateTimeFormat, Mode=OneWay}"
                                          Use24Hours="{Binding Source={x:Static vm:Preferences.Instance}, Path=Use24Hours, Mode=OneWay}"/>
@@ -346,6 +349,10 @@
                 </TabItem.Header>
               </TabItem>
             </TabControl>
+          </DataTemplate>
+
+          <DataTemplate DataType="vm:WorkingCopy">
+            <v:WorkingCopy ShowCommitPanel="False"/>
           </DataTemplate>
 
           <DataTemplate DataType="m:Count">

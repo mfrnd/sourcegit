@@ -442,6 +442,11 @@ namespace SourceGit.ViewModels
             DetailContext = new RevisionCompare(_repo, commit, null);
         }
 
+        public void OpenWorkingCopyPage()
+        {
+            _repo.SelectedViewIndex = 1;
+        }
+
         private void PostCommitsChanged()
         {
             if (_selectedCommits.Count == 0)
@@ -485,22 +490,34 @@ namespace SourceGit.ViewModels
             else if (_selectedCommits.Count == 1)
             {
                 var c = _selectedCommits[0];
-                if (_repo.SearchCommitContext.Selected == null || !_repo.SearchCommitContext.Selected.SHA.Equals(c.SHA, StringComparison.Ordinal))
-                    _repo.SearchCommitContext.Selected = _repo.SearchCommitContext.Results?.Find(x => x.SHA.Equals(c.SHA, StringComparison.Ordinal));
-
-                if (_detailContext is CommitDetail detail)
-                    detail.Commit = c;
+                if (c.IsUncommitted)
+                {
+                    _repo.SearchCommitContext.Selected = null;
+                    DetailContext = _repo.WorkingCopy;
+                }
                 else
-                    DetailContext = new CommitDetail(_repo, _commitDetailSharedData) { Commit = c };
+                {
+                    if (_repo.SearchCommitContext.Selected == null || !_repo.SearchCommitContext.Selected.SHA.Equals(c.SHA, StringComparison.Ordinal))
+                        _repo.SearchCommitContext.Selected = _repo.SearchCommitContext.Results?.Find(x => x.SHA.Equals(c.SHA, StringComparison.Ordinal));
+
+                    if (_detailContext is CommitDetail detail)
+                        detail.Commit = c;
+                    else
+                        DetailContext = new CommitDetail(_repo, _commitDetailSharedData) { Commit = c };
+                }
             }
             else if (_selectedCommits.Count == 2)
             {
                 _repo.SearchCommitContext.Selected = null;
 
-                if (_detailContext is RevisionCompare compare)
-                    compare.SetTargets(_selectedCommits[1], _selectedCommits[0]);
+                var l = _selectedCommits[1];
+                var r = _selectedCommits[0];
+                if (l.IsUncommitted || r.IsUncommitted)
+                    DetailContext = new RevisionCompare(_repo, l.IsUncommitted ? r : l, null);
+                else if (_detailContext is RevisionCompare compare)
+                    compare.SetTargets(l, r);
                 else
-                    DetailContext = new RevisionCompare(_repo, _selectedCommits[1], _selectedCommits[0]);
+                    DetailContext = new RevisionCompare(_repo, l, r);
             }
             else
             {

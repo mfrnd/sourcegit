@@ -524,6 +524,7 @@
   <x:String x:Key="Text.Histories.Tips" xml:space="preserve">Hold 'Ctrl' or 'Shift' to select multiple commits.</x:String>
   <x:String x:Key="Text.Histories.Tips.MacOS" xml:space="preserve">Hold ⌘ or ⇧ to select multiple commits.</x:String>
   <x:String x:Key="Text.Histories.Tips.Prefix" xml:space="preserve">TIPS:</x:String>
+  <x:String x:Key="Text.Histories.UncommittedChanges" xml:space="preserve">Uncommitted changes</x:String>
   <x:String x:Key="Text.HistoriesDetailsStandalone" xml:space="preserve">Open in separate window</x:String>
   <x:String x:Key="Text.HistoriesDetailsStandalone.CommitDetail" xml:space="preserve">Commit Detail</x:String>
   <x:String x:Key="Text.HistoriesDetailsStandalone.RevisionCompare" xml:space="preserve">Revision Compare</x:String>
@@ -696,6 +697,7 @@
   <x:String x:Key="Text.Preferences.General.ShowChangesTabInCommitDetailByDefault" xml:space="preserve">Show `CHANGES` tab in commit detail by default</x:String>
   <x:String x:Key="Text.Preferences.General.ShowRelativeTimeInGraph" xml:space="preserve">Show relative time in commit graph</x:String>
   <x:String x:Key="Text.Preferences.General.ShowTagsInGraph" xml:space="preserve">Show tags in commit graph</x:String>
+  <x:String x:Key="Text.Preferences.General.ShowUncommittedInHistory" xml:space="preserve">Show uncommitted changes in histories</x:String>
   <x:String x:Key="Text.Preferences.General.SubjectGuideLength" xml:space="preserve">Subject Guide Length</x:String>
   <x:String x:Key="Text.Preferences.General.Use24Hours" xml:space="preserve">24-Hours</x:String>
   <x:String x:Key="Text.Preferences.General.UseCompactBranchNames" xml:space="preserve">Use compact branch names in commit graph</x:String>
