@@ -57,7 +57,9 @@ jobs:
           if ! git merge --no-edit upstream/master; then
             git merge --abort || true
             TITLE="Weekly master sync hit conflicts"
-            EXISTING=$(gh issue list --state open --search "in:title \"$TITLE\"" --json title --jq '.[].title' | grep -Fx "$TITLE" || true)
+            # List open issues directly (not `--search`, whose index lags for
+            # brand-new issues and would let each run open a duplicate).
+            EXISTING=$(gh issue list --state open --limit 200 --json title --jq '.[].title' | grep -Fx "$TITLE" || true)
             if [ -z "$EXISTING" ]; then
               # REST endpoint (not `gh issue create`/GraphQL, which the Actions
               # token can't use even with issues:write).
