@@ -115,7 +115,9 @@ jobs:
           if ! git rebase --onto "$UPSTREAM_TAG" "$BASE" HEAD; then
             git rebase --abort || true
             TITLE="Auto-rebase onto ${UPSTREAM_TAG} failed"
-            EXISTING_ISSUE=$(gh issue list --state open --search "in:title \"$TITLE\"" --json title --jq '.[].title' | grep -Fx "$TITLE" || true)
+            # List open issues directly (not `--search`, whose index lags for
+            # brand-new issues and would let each daily run open a duplicate).
+            EXISTING_ISSUE=$(gh issue list --state open --limit 200 --json title --jq '.[].title' | grep -Fx "$TITLE" || true)
             if [ -z "$EXISTING_ISSUE" ]; then
               # Use the REST endpoint, not `gh issue create` (GraphQL createIssue),
               # which returns "Resource not accessible by integration" for the
