@@ -1,8 +1,13 @@
 name: Auto Rebase & Release
-# Replays this fork's feature patches onto the latest UPSTREAM release tag and,
-# when that produces something new, builds all platforms and publishes a DRAFT
-# release. Scheduled runs only fire from the default branch (GitHub rule), which
-# is why this file lives on `master` even though it operates on the feature branch.
+# Vendoring model: for each upstream release tag vX we keep an immutable branch
+# `vendor/vX` = that vanilla tag + our feature patches. The `released` pointer
+# branch tracks the last vendor branch we successfully built AND released, and is
+# the base we rebase the next one from.
+#
+# Each run: take the newest upstream tag, ensure `vendor/vX` exists (auto-rebase
+# `released`'s patches onto vX, or use a human-pre-resolved branch if the rebase
+# conflicts), build it, publish vX.<n>, and only then advance `released` -> vendor/vX.
+# Scheduled runs must live on the default branch (GitHub rule), hence this is on master.
 on:
   schedule:
     - cron: '17 6 * * *'   # daily, 06:17 UTC
@@ -18,26 +23,27 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  FEATURE_BRANCH: feature/uncommitted-in-history
+  POINTER: released
   UPSTREAM_URL: https://github.com/sourcegit-scm/sourcegit.git
 
 jobs:
-  rebase:
-    name: Rebase onto latest upstream
+  prepare:
+    name: Prepare vendor branch
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # push branch + tag
+      contents: write   # push vendor branch + tag
       issues: write      # open an issue on conflict
     outputs:
       should_release: ${{ steps.plan.outputs.should_release }}
       fork_tag: ${{ steps.plan.outputs.fork_tag }}
       version: ${{ steps.plan.outputs.version }}
       upstream_tag: ${{ steps.plan.outputs.upstream_tag }}
+      vendor_branch: ${{ steps.plan.outputs.vendor_branch }}
     steps:
-      - name: Checkout feature branch
+      - name: Checkout pointer branch
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.FEATURE_BRANCH }}
+          ref: ${{ env.POINTER }}
           fetch-depth: 0
 
       - name: Configure git identity
@@ -49,6 +55,7 @@ jobs:
         run: |
           git remote add upstream "$UPSTREAM_URL"
           git fetch upstream --tags --prune --quiet
+          git fetch origin --quiet
 
       - name: Plan release
         id: plan
@@ -60,20 +67,13 @@ jobs:
 
           UPSTREAM_TAG=$(gh api repos/sourcegit-scm/sourcegit/releases/latest --jq '.tag_name')
           echo "Latest upstream release: $UPSTREAM_TAG"
-
           if ! echo "$UPSTREAM_TAG" | grep -qE '^v[0-9]{4}\.[0-9]+$'; then
             echo "::error::Upstream tag '$UPSTREAM_TAG' is not in vYYYY.NN form; refusing to build."
             exit 1
           fi
           NUM=${UPSTREAM_TAG#v}
 
-          # Gate solely on whether a fork build already exists for this upstream
-          # version. We deliberately do NOT skip when the branch already sits on
-          # the tag: after a manual conflict resolution the branch is on the new
-          # tag but not yet released, and that case must still build (the rebase
-          # step below is then a clean no-op).
-          # --refs drops the peeled `^{}` lines that annotated tags emit (else
-          # every existing tag is counted twice).
+          # Already released this upstream version? (--refs drops peeled ^{} lines.)
           EXISTING_TAGS=$(git ls-remote --refs --tags origin "refs/tags/v${NUM}.*" | awk -F/ '{print $NF}')
           EXISTING=$(printf '%s' "$EXISTING_TAGS" | grep -c . || true)
           if [ "$EXISTING" -gt 0 ] && [ "${FORCE:-false}" != "true" ]; then
@@ -82,63 +82,58 @@ jobs:
             exit 0
           fi
 
-          # Next build number = highest existing build for this upstream + 1, so a
-          # skipped/deleted number can never collide with an existing tag.
+          # Next build number = highest existing build for this upstream + 1.
           MAX=$(printf '%s\n' "$EXISTING_TAGS" | awk -F. '{print $NF}' | sort -n | tail -1)
           BUILD=$(( ${MAX:-0} + 1 ))
-          FORK_TAG="v${NUM}.${BUILD}"
-          echo "Planning fork release $FORK_TAG (upstream $UPSTREAM_TAG, build $BUILD)."
           {
             echo "should_release=true"
             echo "upstream_tag=$UPSTREAM_TAG"
-            echo "fork_tag=$FORK_TAG"
+            echo "vendor_branch=vendor/${UPSTREAM_TAG}"
+            echo "fork_tag=v${NUM}.${BUILD}"
             echo "version=${NUM}.${BUILD}"
           } >> "$GITHUB_OUTPUT"
+          echo "Planning v${NUM}.${BUILD} from vendor/${UPSTREAM_TAG} (upstream $UPSTREAM_TAG)."
 
-      - name: Rebase, tag and push
+      - name: Ensure vendor branch, then tag
         if: steps.plan.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           UPSTREAM_TAG: ${{ steps.plan.outputs.upstream_tag }}
+          VENDOR_BRANCH: ${{ steps.plan.outputs.vendor_branch }}
           FORK_TAG: ${{ steps.plan.outputs.fork_tag }}
           VERSION: ${{ steps.plan.outputs.version }}
         run: |
           set -euo pipefail
 
-          ORIG=$(git rev-parse HEAD)   # remote tip we based this rebase on
-          BASE=$(git merge-base HEAD upstream/master)
-          echo "Replaying $(git rev-list --count "$BASE"..HEAD) patch commit(s) from $BASE onto $UPSTREAM_TAG."
-
-          # Rolling backup of the current remote branch tip before we rewrite it.
-          git push -f origin "${ORIG}:refs/heads/backup/auto-rebase-last"
-
-          if ! git rebase --onto "$UPSTREAM_TAG" "$BASE" HEAD; then
-            git rebase --abort || true
-            TITLE="Auto-rebase onto ${UPSTREAM_TAG} failed"
-            # List open issues directly (not `--search`, whose index lags for
-            # brand-new issues and would let each daily run open a duplicate).
-            EXISTING_ISSUE=$(gh issue list --state open --limit 200 --json title --jq '.[].title' | grep -Fx "$TITLE" || true)
-            if [ -z "$EXISTING_ISSUE" ]; then
-              # Use the REST endpoint, not `gh issue create` (GraphQL createIssue),
-              # which returns "Resource not accessible by integration" for the
-              # Actions token even with issues:write. REST honors issues:write.
-              BODY=$'The scheduled auto-rebase of the feature patches onto upstream `'"$UPSTREAM_TAG"$'` hit conflicts and was aborted; no release was produced.\n\nResolve locally:\n```\ngit fetch upstream --tags\ngit rebase --onto '"$UPSTREAM_TAG"' '"$BASE"' '"$FEATURE_BRANCH"'\n# fix conflicts, then\ngit push --force-with-lease origin '"$FEATURE_BRANCH"'\n```\nThe daily job will then pick up from the new base and release automatically.'
-              gh api --method POST "/repos/${GITHUB_REPOSITORY}/issues" \
-                -f "title=$TITLE" \
-                -f "body=$BODY" >/dev/null \
-                || echo "::warning::Could not create tracking issue."
+          if git ls-remote --exit-code --heads origin "refs/heads/${VENDOR_BRANCH}" >/dev/null 2>&1; then
+            # A human (or a prior clean run) already produced this vendor branch.
+            echo "${VENDOR_BRANCH} already exists; building from it."
+            git checkout -B "$VENDOR_BRANCH" "origin/${VENDOR_BRANCH}"
+          else
+            # Rebase the pointer's patches onto the new upstream tag.
+            git checkout -B "$VENDOR_BRANCH" "origin/${POINTER}"
+            BASE=$(git merge-base HEAD upstream/master)
+            echo "Replaying $(git rev-list --count "$BASE"..HEAD) patch commit(s) from ${POINTER} onto $UPSTREAM_TAG."
+            if ! git rebase --onto "$UPSTREAM_TAG" "$BASE" HEAD; then
+              git rebase --abort || true
+              TITLE="Auto-rebase onto ${UPSTREAM_TAG} failed"
+              EXISTING_ISSUE=$(gh issue list --state open --limit 200 --json title --jq '.[].title' | grep -Fx "$TITLE" || true)
+              if [ -z "$EXISTING_ISSUE" ]; then
+                # REST endpoint, not `gh issue create` (its GraphQL createIssue is
+                # denied to the Actions token even with issues:write).
+                BODY=$'The scheduled rebase of the `'"${POINTER}"$'` patches onto upstream `'"$UPSTREAM_TAG"$'` hit conflicts; no `'"$VENDOR_BRANCH"$'` was produced and no release was made.\n\nResolve locally, then the daily job builds + releases it and advances `released`:\n```\ngit fetch upstream --tags\ngit fetch origin '"${POINTER}"'\ngit checkout -b '"$VENDOR_BRANCH"' origin/'"${POINTER}"'\ngit rebase --onto '"$UPSTREAM_TAG"' $(git merge-base HEAD upstream/master) HEAD\n# fix conflicts, then\ngit push origin '"$VENDOR_BRANCH"'\n```'
+                gh api --method POST "/repos/${GITHUB_REPOSITORY}/issues" \
+                  -f "title=$TITLE" -f "body=$BODY" >/dev/null \
+                  || echo "::warning::Could not create tracking issue."
+              fi
+              echo "::error::Rebase onto $UPSTREAM_TAG failed; see the tracking issue."
+              exit 1
             fi
-            echo "::error::Rebase onto $UPSTREAM_TAG failed; see the tracking issue."
-            exit 1
+            git push origin "HEAD:refs/heads/${VENDOR_BRANCH}"
           fi
 
-          # Push the clean, rebased patch set (no version bump) to the feature branch.
-          # Lease on ORIG: refuse the rewrite if someone pushed to the branch mid-run.
-          git push --force-with-lease="refs/heads/${FEATURE_BRANCH}:${ORIG}" origin "HEAD:refs/heads/${FEATURE_BRANCH}"
-
-          # Build a detached commit that carries the matching VERSION and tag it.
-          # The tag (not the branch) references this commit, keeping the branch a
-          # clean 2-commit patch set for the next rebase.
+          # Tag a detached version-bump commit on top of the vendor branch, so the
+          # vendor branch itself stays a clean patch set.
           git checkout --detach
           echo "$VERSION" > VERSION
           git commit -am "chore(release): $FORK_TAG"
@@ -147,24 +142,24 @@ jobs:
 
   build:
     name: Build
-    needs: rebase
-    if: needs.rebase.outputs.should_release == 'true'
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
     uses: ./.github/workflows/build.yml
     with:
-      ref: ${{ needs.rebase.outputs.fork_tag }}
+      ref: ${{ needs.prepare.outputs.fork_tag }}
 
   package:
     name: Package
-    needs: [rebase, build]
-    if: needs.rebase.outputs.should_release == 'true'
+    needs: [prepare, build]
+    if: needs.prepare.outputs.should_release == 'true'
     uses: ./.github/workflows/package.yml
     with:
-      version: ${{ needs.rebase.outputs.version }}
+      version: ${{ needs.prepare.outputs.version }}
 
   release:
     name: Publish release
-    needs: [rebase, package]
-    if: needs.rebase.outputs.should_release == 'true'
+    needs: [prepare, package]
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -178,27 +173,21 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.rebase.outputs.fork_tag }}
-          VERSION: ${{ needs.rebase.outputs.version }}
-          UPSTREAM_TAG: ${{ needs.rebase.outputs.upstream_tag }}
+          TAG: ${{ needs.prepare.outputs.fork_tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          UPSTREAM_TAG: ${{ needs.prepare.outputs.upstream_tag }}
         run: |
           set -euo pipefail
-          # Full (non-draft, non-prerelease) release so the in-app updater's
-          # releases/latest query offers it to installs automatically.
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$VERSION" \
             --latest \
-            --notes "Automated build of the uncommitted-in-history fork rebased onto upstream \`$UPSTREAM_TAG\`." \
+            --notes "Automated build of the uncommitted-in-history fork on upstream \`$UPSTREAM_TAG\`." \
             packages/*
 
       - name: Refresh Scoop bucket
-        # Trigger the scoop-bucket Excavator so it picks up this release right
-        # away instead of waiting for its daily schedule. The built-in
-        # GITHUB_TOKEN is scoped to this repo and can't dispatch workflows in
-        # another repo, so this needs a PAT with actions:write on
-        # mfrnd/scoop-bucket, stored as the BUCKET_DISPATCH_TOKEN secret. Without
-        # the secret this step no-ops and the daily Excavator run catches up.
+        # Needs a PAT with actions:write on mfrnd/scoop-bucket (BUCKET_DISPATCH_TOKEN);
+        # without it this no-ops and the daily Excavator run catches up.
         env:
           GH_TOKEN: ${{ secrets.BUCKET_DISPATCH_TOKEN }}
         run: |
@@ -209,3 +198,23 @@ jobs:
           else
             echo "BUCKET_DISPATCH_TOKEN not set; skipping bucket refresh (daily Excavator will catch up)."
           fi
+
+  advance-pointer:
+    name: Advance released pointer
+    needs: [prepare, release]
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Move released -> vendor branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VENDOR_BRANCH: ${{ needs.prepare.outputs.vendor_branch }}
+        run: |
+          set -euo pipefail
+          # The release succeeded, so this vendor branch is now the last known-good.
+          SHA=$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/heads/${VENDOR_BRANCH}" --jq '.object.sha')
+          echo "Advancing ${POINTER} -> ${VENDOR_BRANCH} (${SHA})."
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/${POINTER}" \
+            -f "sha=${SHA}" -F force=true >/dev/null
