@@ -895,6 +895,7 @@
   <x:String x:Key="Text.SelfUpdate.ReleaseDate" xml:space="preserve">New Version Release Date: </x:String>
   <x:String x:Key="Text.SelfUpdate.Title" xml:space="preserve">Software Update</x:String>
   <x:String x:Key="Text.SelfUpdate.UpToDate" xml:space="preserve">There are currently no updates available.</x:String>
+  <x:String x:Key="Text.SelfUpdate.UpdateViaScoop" xml:space="preserve">Update via Scoop</x:String>
   <x:String x:Key="Text.SetPushUrl" xml:space="preserve">Set Push URL for Remote</x:String>
   <x:String x:Key="Text.SetPushUrl.PushURL" xml:space="preserve">Push URL:</x:String>
   <x:String x:Key="Text.SetPushUrl.Remote" xml:space="preserve">Remote:</x:String>
