@@ -143,7 +143,15 @@ jobs:
           echo "$VERSION" > VERSION
           git commit -am "chore(release): $FORK_TAG"
           git tag -a "$FORK_TAG" -m "$FORK_TAG — uncommitted-in-history fork on upstream $UPSTREAM_TAG"
-          git push origin "refs/tags/$FORK_TAG"
+
+          # Push the tag with the default GITHUB_TOKEN, bypassing the checkout's
+          # PAT credential. A PAT-pushed tag would trigger release.yml and
+          # double-publish this release (that path would then race ours and the
+          # loser fails with "release already exists"). The version-bump commit
+          # changes no workflow files, so GITHUB_TOKEN is allowed to push it, and
+          # GITHUB_TOKEN-pushed tags do not trigger workflows.
+          git -c http.https://github.com/.extraheader= \
+            push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/$FORK_TAG"
 
   build:
     name: Build
