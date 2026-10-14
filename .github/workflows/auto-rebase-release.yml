@@ -45,6 +45,11 @@ jobs:
         with:
           ref: ${{ env.POINTER }}
           fetch-depth: 0
+          # Vendor branches carry upstream's .github/workflows/* files; pushing
+          # them needs a token with the Workflows permission (the default
+          # GITHUB_TOKEN is categorically refused on workflow-file changes).
+          # REPO_PUSH_TOKEN = fine-grained PAT (Contents + Workflows: write).
+          token: ${{ secrets.REPO_PUSH_TOKEN || github.token }}
 
       - name: Configure git identity
         run: |
@@ -209,7 +214,9 @@ jobs:
     steps:
       - name: Move released -> vendor branch
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT so the ref update is allowed when the vendor branch changed
+          # workflow files relative to the old pointer.
+          GH_TOKEN: ${{ secrets.REPO_PUSH_TOKEN || secrets.GITHUB_TOKEN }}
           VENDOR_BRANCH: ${{ needs.prepare.outputs.vendor_branch }}
         run: |
           set -euo pipefail
