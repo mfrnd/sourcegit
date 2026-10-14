@@ -30,6 +30,10 @@ jobs:
         with:
           ref: master
           fetch-depth: 0
+          # Upstream merges carry .github/workflows/* changes; pushing them needs
+          # a token with the Workflows permission (the default GITHUB_TOKEN is
+          # refused). REPO_PUSH_TOKEN = fine-grained PAT (Contents + Workflows: write).
+          token: ${{ secrets.REPO_PUSH_TOKEN || github.token }}
 
       - name: Configure git identity
         run: |
